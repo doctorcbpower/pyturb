@@ -5,109 +5,6 @@ from scipy.fft import fftn, ifftn, fftfreq, fftshift
 from scipy.interpolate import RegularGridInterpolator
 import random
 
-#def comprehensive_power_spectrum_demo():
-#    """
-#    Comprehensive demonstration of power spectrum analysis tools.
-#    """
-#    print("Comprehensive Power Spectrum Analysis Demo")
-#    print("=" * 45)
-#    
-#    # Create shearing box with turbulence
-#    shear_box = ShearingBoxTurbulence(
-#        grid_size=128,
-#        box_size=1.0,
-#        shear_rate=1.0,
-#        seed=42
-#    )
-#    
-#    # Generate turbulent field
-#    print("Generating turbulent field...")
-#    shear_box.generate_shearing_box_turbulence(alpha=5/3)
-#    
-#    # Evolve briefly to develop some structure
-#    shear_box.evolve_shearing_box(0.05, 5, remap_frequency=2)
-#    
-#    # 1. Radial Power Spectrum
-#    print("\n1. Computing radial power spectrum...")
-#    k_rad, P_rad, errors = shear_box.compute_power_spectrum(
-#        component='total_energy', method='radial', normalize=True
-#    )
-#    
-#    # 2. Cylindrical Power Spectrum (good for shearing systems)
-#    print("2. Computing cylindrical power spectrum...")
-#    k_cyl, P_cyl, _ = shear_box.compute_power_spectrum(
-#        component='total_energy', method='cylindrical', normalize=True
-#    )
-#    
-#    # 3. 1D Power Spectra
-#    print("3. Computing 1D power spectra...")
-#    k_1d_x, P_1d_x, _ = shear_box.compute_power_spectrum(
-#        component='total_energy', method='1d_x', normalize=True
-#    )
-#    k_1d_y, P_1d_y, _ = shear_box.compute_power_spectrum(
-#        component='total_energy', method='1d_y', normalize=True
-#    )
-#    
-#    # 4. Individual velocity components
-#    print("4. Computing component-wise spectra...")
-#    k_vx, P_vx, _ = shear_box.compute_power_spectrum(component='vx', method='radial')
-#    k_vy, P_vy, _ = shear_box.compute_power_spectrum(component='vy', method='radial')
-#    k_vz, P_vz, _ = shear_box.compute_power_spectrum(component='vz', method='radial')
-#    
-#    # 5. Structure Functions
-#    print("5. Computing velocity structure functions...")
-#    struct_funcs = shear_box.compute_velocity_structure_functions(n_lags=15)
-#    
-#    # 6. Anisotropic Analysis
-#    print("6. Computing anisotropic power spectrum...")
-#    aniso_data = shear_box.compute_anisotropic_spectrum(n_angles=8)
-#    
-#    # Create comprehensive plots
-#    fig = plt.figure(figsize=(16, 12))
-#    
-#    # Plot 1: Radial vs Cylindrical Spectra
-#    ax1 = plt.subplot(2, 3, 1)
-#    mask_rad = (k_rad > 0) & (P_rad > 0)
-#    mask_cyl = (k_cyl > 0) & (P_cyl > 0)
-#    
-#    plt.loglog(k_rad[mask_rad], P_rad[mask_rad], 'b-', linewidth=2, 
-#               label='Radial Average')
-#    plt.loglog(k_cyl[mask_cyl], P_cyl[mask_cyl], 'r--', linewidth=2, 
-#               label='Cylindrical Average')
-#    
-#    # Plot Kolmogorov reference
-#    if np.any(mask_rad):
-#        k_ref = k_rad[mask_rad]
-#        P_ref = P_rad[mask_rad][5] * (k_ref / k_rad[mask_rad][5])**(-5/3)
-#        plt.loglog(k_ref, P_ref, 'k:', alpha=0.7, label=r'$k^{-5/3}$ (Kolmogorov)')
-#    
-#    plt.xlabel('Wavenumber k')
-#    plt.ylabel('Power Spectrum P(k)')
-#    plt.title('Radial vs Cylindrical Averaging')
-#    plt.legend()
-#    plt.grid(True, alpha=0.3)
-#    
-#    # Plot 2: 1D Spectra Comparison
-#    ax2 = plt.subplot(2, 3, 2)
-#    mask_x = (k_1d_x > 0) & (P_1d_x > 0)
-#    mask_y = (k_1d_y > 0) & (P_1d_y > 0)
-#    
-#    plt.loglog(k_1d_x[mask_x], P_1d_x[mask_x], 'b-', label='x-direction')
-#    plt.loglog(k_1d_y[mask_y], P_1d_y[mask_y], 'r-', label='y-direction')
-#    plt.xlabel('Wavenumber k')
-#    plt.ylabel('1D Power Spectrum')
-#    plt.title('Directional 1D Spectra')
-#    plt.legend()
-#    plt.grid(True, alpha=0.3)
-#    
-#    # Plot 3: Component-wise Spectra
-#    ax3 = plt.subplot(2, 3, 3)
-#    mask_vx = (k_vx > 0) & (P_vx > 0)
-#    mask_vy = (k_vy > 0) & (P_vy > 0)
-#    mask_vz = (k_vz > 0) & (P_vz > 0)
-#    
-#    plt.loglog(k_vx[mask_vx], P_vx[mask_vx], 'b-', label=r'$v_x
-
 class MeasureVelocityField:
     """
     Tools to measure properties of a velocity field.
@@ -121,28 +18,6 @@ class MeasureVelocityField:
             Number of grid points per dimension. Assumed to be a single int.
        """
         self.Nx = self.Ny = self.Nz = grid_size
-                   
-            
-#        # Create coordinate grids (shearing box coordinates)
-#        self.x = np.linspace(-self.Lx/2, self.Lx/2, self.Nx, endpoint=False)
-#        self.y = np.linspace(-self.Ly/2, self.Ly/2, self.Ny, endpoint=False)
-#        self.z = np.linspace(-self.Lz/2, self.Lz/2, self.Nz, endpoint=False)
-#        
-#        # Create 3D coordinate meshgrids
-#        self.X, self.Y, self.Z = np.meshgrid(self.x, self.y, self.z, indexing='ij')
-#        
-#         # Initialize velocity field components
-#        self.vx = None
-#        self.vy = None
-#        self.vz = None
-#        self.vx_turb = None  # Store turbulent component
-#        self.vy_turb = None
-#        self.vz_turb = None
-#        
-#        # Store initial conditions for remapping
-#        self.vx_initial = None
-#        self.vy_initial = None
-#        self.vz_initial = None
 
     def compute_power_spectrum(self, component='total_energy', method='radial',
                               k_bins=None, normalize=True):
