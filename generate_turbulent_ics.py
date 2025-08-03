@@ -347,7 +347,8 @@ class CreateTurbulentVelocityField:
         mass = np.full(N_gas, self.rho0 * Volume / N_gas)
     
         # Internal energies (uniform temperature)
-        u = np.full(N_gas, self.temperature)  # Will be converted by AREPO
+        # Zero out and set with parameter file during runtime
+        u = np.full(N_gas, 0.0) 
     
         # Particle IDs
         ids = np.arange(1, N_gas + 1, dtype=np.uint64)
