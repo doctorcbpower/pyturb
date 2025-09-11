@@ -11,6 +11,7 @@ setup(
     author="Chris Power (chris.power@uwa.edu.au)",
     install_requires=["h5py",
                       "numpy",
+		      "numba",
 		      "scipy",
 		      "matplotlib",
 		      "plotly",
