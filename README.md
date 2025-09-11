@@ -32,8 +32,6 @@ You can grid the data and produce projections and slices using,
 gt=pyturb.GriddingTools()
 grid_size = np.array([64,64,64], dtype=np.int64)  # Numba-safe
 grid_limits =  np.array([0,1,0,1,0,1], dtype=np.float64)*turb.box_size
-
 data = gt.smooth_to_grid(pos, vel, grid_size, grid_limits,method="GAUSSIAN", filter_sigma=2.0)
-
 fig, axes = gt.plot_3d_projections(data, grid_limits, mode='projection', slice_width=3, projection='max', cmap='plasma', units='kpc', title="Turbulent Velocity Field - Magnitude")
 ```
