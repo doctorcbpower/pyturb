@@ -1,5 +1,8 @@
-## pyturb
-Python routines to generate turbulent velocity fields and to measure their properties
+## PyTurb: routines to generate and quantify turbulent velocity field
+
+Developer: Chris Power [UWA](https://research-repository.uwa.edu.au/en/persons/chris-power), [ICRAR](https://www.icrar.org/people/cpower/).
+
+More details on the theory and background are in the [wiki](https://github.com/doctorcbpower/pyturb/wiki).
 
 ### Installation
 Once you have cloned, 
