@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import h5py
-from scipy.fft import fftn, ifftn, fftfreq
+from scipy.fft import rfftn, fftn, irfftn, ifftn, fftfreq
 from scipy.interpolate import RegularGridInterpolator
 import random
 
@@ -11,7 +11,7 @@ class CreateTurbulentVelocityField:
     turbulent velocity fields in molecular clouds with Kolmogorov spectrum.
     """
     
-    def __init__(self, grid_size=32, rho0=1.0, box_size=1.0, temperature=1.e3, v_turb=1.0, alpha=5./3., seed=None):
+    def __init__(self, grid_size=32, rho0=1.0, box_size=1.0, v_turb=1.0, temperature=1.e4, alpha=5./3., seed=None):
         """
         Initialize the turbulent velocity field generator.
         
@@ -23,6 +23,8 @@ class CreateTurbulentVelocityField:
             Physical size of the simulation box
         seed : int, optional
             Random seed for reproducible results
+        alpha: float, optinonal
+            Index of energy spectrum; assume Kolmogorov value of -5/3 as default.
         """
         self.grid_size = grid_size
         self.box_size = box_size
@@ -54,12 +56,31 @@ class CreateTurbulentVelocityField:
         self.vz_turb = None
         
 #        # Precompute k-grid for rFFTs
-        k = np.fft.fftfreq(N, d=dx) * 2*np.pi
-        self.kx, self.ky, self.kz = np.meshgrid(k, k, k[:N//2+1], indexing='ij')
+        k = np.fft.fftfreq(self.grid_size, d=self.dx) * 2*np.pi
+        kx = k
+        ky = k
+        kz = k #np.fft.rfftfreq(self.grid_size, d=self.dx) * 2*np.pi
+        self.kx, self.ky, self.kz = np.meshgrid(kx, ky, kz, indexing='ij')
         self.K2 = self.kx**2 + self.ky**2 + self.kz**2
-        self.K2[0,0,0] = 1.0  # avoid division by zero at k=0
+        self.K2[0,0,0] = 1.0  # avoid divide by zero
+        
+        self.velocity_field=None
 
-    def generate_kolmogorov_field(self, alpha=5/3):
+    def power_spectrum_index(self,alpha=5./3.):
+        """ 
+        Take as input the energy spectrum index and return the power spectrum index.
+        
+        Parameters:
+        alpha: float
+            Energy spectrum index
+        Returns:
+        float:
+            Power spectrum index
+        """
+        return alpha+2.
+        
+
+    def generate_kolmogorov_field(self, energy_spectrum_index=5./3., power_spectrum_index=None, energy_scale=1.0):
         """
         Generate a 3D turbulent velocity field with Kolmogorov spectrum.
         
@@ -67,7 +88,8 @@ class CreateTurbulentVelocityField:
         -----------
         alpha : float
             Spectral index (5/3 for Kolmogorov turbulence)
-            
+        energy_scale: float
+            Normalisation factor for energy of fluid
         Returns:
         --------
         tuple of 3D arrays
@@ -76,7 +98,16 @@ class CreateTurbulentVelocityField:
         
         # Create Kolmogorov power spectrum: P(k) ~ k^(-alpha)
         # For velocity field, we want k^(-alpha/2) amplitude
-        amplitude = self.K2**(-alpha/4)
+        if power_spectrum_index==None:
+            spectral_index=self.power_spectrum_index(energy_spectrum_index)
+        else:
+            spectral_index=power_spectrum_index
+            
+        K_mag=np.sqrt(self.K2)
+        amplitude=np.zeros_like(K_mag)
+        
+        mask=K_mag>0
+        amplitude[mask] = K_mag[mask]**(-spectral_index/2)
         amplitude[0, 0, 0] = 0  # Set DC component to zero
         
         # Generate three independent velocity components
@@ -87,33 +118,54 @@ class CreateTurbulentVelocityField:
             phases = np.random.uniform(0, 2*np.pi, self.kx.shape)
             field_k = amplitude * (np.cos(phases) + 1j*np.sin(phases))
             # Transform to real space using irfftn (Hermitian symmetry automatically enforced)
-            velocity_field = np.real(irfftn(field_k, s=(N,N,N)))
+#            velocity_field = np.real(irfftn(field_k, s=(self.grid_size,self.grid_size,self.grid_size)))
+            velocity_field = np.real(ifftn(field_k))
             velocity_components.append(velocity_field)
             
+#        velocity_components*/= self.grid_size**3  # ensures Parseval's theorem works
+
         # Make velocity field divergence-free (solenoidal)
-        self.vx_turb, self.vy_turb, self.vz_turb = self._make_solenoidal(*velocity_components)
+        self.vx_turb, self.vy_turb, self.vz_turb = self._make_solenoidal(velocity_components)
         
         # Initially, total velocity is just turbulent component
         self.vx, self.vy, self.vz = self.vx_turb.copy(), self.vy_turb.copy(), self.vz_turb.copy()
 
-        return self.vx, self.vy, self.vz
+       # Scale to desired energy level
+        total_energy = np.mean(self.vx**2 + self.vy**2 + self.vz**2)
+        scale_factor = np.sqrt(energy_scale / total_energy)
         
+        self.vx *= scale_factor
+        self.vy *= scale_factor
+        self.vz *= scale_factor
+
+        self.velocity_field = np.stack([self.vx, self.vy, self.vz], axis=-1)
+
+        return self.velocity_field
+
+#        return self.vx,self.vy,self.vz
+                
     def _make_solenoidal(self, velocity_components):
         """
         Project velocity field to make it divergence-free (solenoidal).
         """
         # Transform velocity components to Fourier space
-        vx_k = rfftn(velocity_components[0])
-        vy_k = rfftn(velocity_components[1])
-        vz_k = rfftn(velocity_components[2])
+#        vx_k = rfftn(velocity_components[0])
+#        vy_k = rfftn(velocity_components[1])
+#        vz_k = rfftn(velocity_components[2])
+        vx_k = fftn(velocity_components[0])
+        vy_k = fftn(velocity_components[1])
+        vz_k = fftn(velocity_components[2])
                   
         # Calculate divergence in k-space
         div_k = 1j * (self.kx * vx_k + self.ky * vy_k + self.kz * vz_k)
-        
+
+        K2_safe = self.K2.copy()
+        K2_safe[ K2_safe == 0 ] = 1.0  # avoid divide-by-zero
+
         # Project out the compressive component
-        vx_k_sol = vx_k - 1j * self.kx * div_k / self.K2
-        vy_k_sol = vy_k - 1j * self.ky * div_k / self.K2
-        vz_k_sol = vz_k - 1j * self.kz * div_k / self.K2
+        vx_k_sol = vx_k - 1j * self.kx * div_k / K2_safe
+        vy_k_sol = vy_k - 1j * self.ky * div_k / K2_safe
+        vz_k_sol = vz_k - 1j * self.kz * div_k / K2_safe
         
         # Set DC component to zero
         vx_k_sol[0, 0, 0] = 0
@@ -121,9 +173,12 @@ class CreateTurbulentVelocityField:
         vz_k_sol[0, 0, 0] = 0
         
         # Transform back to real space
-        vx_sol = np.real(irfftn(vx_k_sol,s=(self.grid_size,)*3))
-        vy_sol = np.real(irfftn(vy_k_sol,s=(self.grid_size,)*3))
-        vz_sol = np.real(irfftn(vz_k_sol,s=(self.grid_size,)*3))
+#        vx_sol = np.real(irfftn(vx_k_sol,s=(self.grid_size,)*3))
+#        vy_sol = np.real(irfftn(vy_k_sol,s=(self.grid_size,)*3))
+#        vz_sol = np.real(irfftn(vz_k_sol,s=(self.grid_size,)*3))
+        vx_sol = np.real(ifftn(vx_k_sol))
+        vy_sol = np.real(ifftn(vy_k_sol))
+        vz_sol = np.real(ifftn(vz_k_sol))
         
         return vx_sol, vy_sol, vz_sol
     

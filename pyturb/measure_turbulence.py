@@ -1,54 +1,42 @@
 import h5py
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy.fft import fftn, ifftn, fftfreq, fftshift
-from scipy.interpolate import RegularGridInterpolator
-import random
+from scipy.fft import fftn, fftfreq
 
 class MeasureVelocityField:
     """
     Tools to measure properties of a velocity field.
     Includes the power spectrum.
     """
-    def __init__(self, grid_size=128):
-        """        
-        Parameters:
-        -----------
-        grid_size : int 
-            Number of grid points per dimension. Assumed to be a single int.
-       """
-        self.Nx = self.Ny = self.Nz = grid_size
-
-    def compute_power_spectrum(self, component='total_energy', method='radial',
-                              k_bins=None, normalize=True):
+    def __init__(self):
+        pass
+        
+    def compute_power_spectrum(self, velocity_field, box_size, component='energy',
+                              method='radial', k_bins=None, normalize=True):
         """
         Compute power spectrum of velocity field with multiple analysis options.
         
         Parameters:
         -----------
-        component : str
-            Which component to analyze ('vx', 'vy', 'vz', 'total_energy', 'kinetic_energy')
-        method : str
-            'radial' for spherically averaged, 'cylindrical' for cylindrically averaged,
-            '1d_x', '1d_y', '1d_z' for 1D power spectra along specific axes
-        k_bins : array-like, optional
-            Custom k bins. If None, uses automatic binning.
-        normalize : bool
-            Whether to normalize by volume and apply proper scaling
+        velocity_field: ndarray - velocity field on a regular grid with shape (Nx,Ny,Nz,3)
+        component : str - which component to analyze ('vx', 'vy', 'vz', 'total_energy')
+        method : str - 'radial' for spherically averaged, 'cylindrical' for cylindrically 
+            averaged, '1d_x', '1d_y', '1d_z' for 1D power spectra along specific axes
+        k_bins : array-like, optional - custom k bins. If None, uses automatic binning.
+        normalize : bool - whether to normalize by volume and apply proper scaling
             
         Returns:
         --------
-        tuple
-            (k_values, power_spectrum, error_bars) if applicable
+        tuple - (k_values, power_spectrum, error_bars) if applicable
         """
-        if self.vx is None:
-            raise ValueError("Generate velocity field first")
-        
-        # Get velocity components (remove background shear from vy)
-        vx = self.vx
-        vy = self.vy
-        vz = self.vz
-        
+       
+        if velocity_field.ndim != 4 or velocity_field.shape[-1] != 3:
+            raise ValueError("velocity_field must have shape (Nx, Ny, Nz, 3)")
+
+        # Extract components
+        vx = velocity_field[..., 0]
+        vy = velocity_field[..., 1]
+        vz = velocity_field[..., 2]
+
         # Choose field to analyze
         if component == 'vx':
             field = vx
@@ -56,34 +44,33 @@ class MeasureVelocityField:
             field = vy
         elif component == 'vz':
             field = vz
-        elif component == 'total_energy':
-            field = 0.5 * (vx**2 + vy**2 + vz**2)
+        elif component == 'energy':
+            field = (vx**2 + vy**2 + vz**2)
         elif component == 'kinetic_energy':
-            # Total kinetic energy density
-            field = vx**2 + vy**2 + vz**2
+            field = 0.5 * (vx**2 + vy**2 + vz**2)
         else:
             raise ValueError("Invalid component")
-        
-        self.Nx=np.int32(self.N_gas**(1./3.))
-        self.dx=self.box_size/self.Nx
-        
-        # Create frequency grids
-        kx = fftfreq(self.Nx,d=self.dx) * 2 * np.pi
-        ky = fftfreq(self.Nx,d=self.dx) * 2 * np.pi
-        kz = fftfreq(self.Nx,d=self.dx) * 2 * np.pi
-        
+            
+        # Get number of dimensions along each axis
+        Nx,Ny,Nz,_=velocity_field.shape
+        dx=box_size/Nx
+
+        # Create grids
+        kx = fftfreq(Nx,d=dx) * 2 * np.pi
+        ky = fftfreq(Ny,d=dx) * 2 * np.pi
+        kz = fftfreq(Nz,d=dx) * 2 * np.pi
         KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing='ij')
         
         if method == 'radial':
-            return self._compute_radial_spectrum(field, KX, KY, KZ, k_bins, normalize)
-        elif method == 'cylindrical':
-            return self._compute_cylindrical_spectrum(field, KX, KY, KZ, k_bins, normalize)
-        elif method in ['1d_x', '1d_y', '1d_z']:
-            return self._compute_1d_spectrum(field, method, normalize)
+            return self._compute_radial_spectrum(field, KX, KY, KZ, dx, box_size, k_bins, normalize)
+#        elif method == 'cylindrical':
+#            return self._compute_cylindrical_spectrum(field, KX, KY, KZ, k_bins, normalize)
+#        elif method in ['1d_x', '1d_y', '1d_z']:
+#            return self._compute_1d_spectrum(field, method, normalize)
         else:
             raise ValueError("Invalid method")
     
-    def _compute_radial_spectrum(self, field, KX, KY, KZ, k_bins, normalize):
+    def _compute_radial_spectrum(self, field, KX, KY, KZ, dx, box_size, k_bins, normalize):
         """Compute spherically averaged power spectrum."""
         # Transform to Fourier space
         field_k = fftn(field)
@@ -91,7 +78,8 @@ class MeasureVelocityField:
         
         # Normalize by volume if requested
         if normalize:
-            power_3d *= (self.dx * self.dx * self.dx)**2 / (self.box_size * self.box_size * self.box_size)
+            Ntotal = field.size
+            power_3d *= (dx * dx * dx)**2 / (box_size * box_size * box_size)
         
         # Calculate radial wavenumber
         K = np.sqrt(KX**2 + KY**2 + KZ**2)
@@ -99,29 +87,32 @@ class MeasureVelocityField:
         # Set up k bins
         if k_bins is None:
             k_max = np.min([np.max(np.abs(KX)), np.max(np.abs(KY)), np.max(np.abs(KZ))])
-            k_bins = np.logspace(np.log10(2*np.pi/max(self.box_size, self.box_size, self.box_size)),
-                               np.log10(k_max), 50)
-        
+            k_min = 2.*np.pi/box_size
+            nbins = 50
+            k_bins = np.logspace(np.log10(k_min),np.log10(k_max), nbins)
+
         # Compute radially averaged spectrum
         power_1d = np.zeros(len(k_bins)-1)
         k_centers = np.sqrt(k_bins[1:] * k_bins[:-1])  # Geometric mean
-        counts = np.zeros(len(k_bins)-1)
+        errors = np.zeros_like(power_1d)
+        counts = np.zeros_like(power_1d)
         
         for i in range(len(k_bins)-1):
             mask = (K >= k_bins[i]) & (K < k_bins[i+1]) & (K > 0)
             if np.any(mask):
-                power_1d[i] = np.mean(power_3d[mask])
+                power_values = power_3d[mask]
+                power_1d[i] = np.mean(power_values)
                 counts[i] = np.sum(mask)
-        
-        # Calculate error bars (standard error of mean)
-        errors = np.zeros_like(power_1d)
-        for i in range(len(k_bins)-1):
-            mask = (K >= k_bins[i]) & (K < k_bins[i+1]) & (K > 0)
-            if np.sum(mask) > 1:
-                errors[i] = np.std(power_3d[mask]) / np.sqrt(np.sum(mask))
-        
-        return k_centers, power_1d, errors
-    
+
+                if len(power_values)>1:
+                    errors[i] = np.std(power_values)/np.sqrt(len(power_values))
+                else:
+                    errors[i]=0
+
+        valid=counts>0
+
+        return k_centers[valid], power_1d[valid], errors[valid]
+
     def _compute_cylindrical_spectrum(self, field, KX, KY, KZ, k_bins, normalize):
         """Compute cylindrically averaged power spectrum (useful for shearing box)."""
         # Transform to Fourier space
