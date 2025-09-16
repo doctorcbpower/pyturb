@@ -9,9 +9,46 @@ class MeasureVelocityField:
     """
     def __init__(self):
         pass
-        
+
+    def check_energy_conservation(self,velocity_field):
+        """
+        """
+        # Read space total energy
+        energy_real = np.mean(np.sum(velocity_field**2, axis=-1))
+    
+        # Fourier space total energy (Parseval's theorem)
+        # Sum over all k modes in power spectrum
+#        dk = np.gradient(k)  # k-space spacing
+#        energy_fourier = np.sum(P_energy * k**2 * dk) * 4 * np.pi  # 4π for spherical integration
+#
+        print(f"Real space energy: {energy_real:.6f}")
+#    print(f"Fourier space energy: {energy_fourier:.6f}")
+#    print(f"Ratio: {energy_fourier/energy_real:.3f} (should be ≈ 1)")
+    
+    def assignment_window(self, kx, ky, kz, dx, method="CIC"):
+        """
+        Compute assignment window function in Fourier space.
+        kx, ky, kz: arrays of wave numbers
+        dx: grid spacing
+        method: "NGP" or "CIC"
+        """
+        def sinc(x):
+            return np.sinc(x / np.pi)  # numpy's sinc is sin(pi x)/(pi x)
+
+        Wx = sinc(0.5 * kx * dx)
+        Wy = sinc(0.5 * ky * dx)
+        Wz = sinc(0.5 * kz * dx)
+
+        if method.upper() == "NGP":
+            W = Wx * Wy * Wz
+        elif method.upper() == "CIC":
+            W = (Wx * Wy * Wz) ** 2
+        else:
+            raise ValueError(f"Unknown assignment {method}")
+        return W
+            
     def compute_power_spectrum(self, velocity_field, box_size, component='energy',
-                              method='radial', k_bins=None, normalize=True):
+                              method='radial', k_bins=None, normalize=True, deconvolve=None):
         """
         Compute power spectrum of velocity field with multiple analysis options.
         
@@ -54,7 +91,7 @@ class MeasureVelocityField:
         # Get number of dimensions along each axis
         Nx,Ny,Nz,_=velocity_field.shape
         dx=box_size/Nx
-
+        
         # Create grids
         kx = fftfreq(Nx,d=dx) * 2 * np.pi
         ky = fftfreq(Ny,d=dx) * 2 * np.pi
@@ -62,7 +99,7 @@ class MeasureVelocityField:
         KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing='ij')
         
         if method == 'radial':
-            return self._compute_radial_spectrum(field, KX, KY, KZ, dx, box_size, k_bins, normalize)
+            return self._compute_radial_spectrum(field, KX, KY, KZ, dx, box_size, k_bins, normalize=True, deconvolve=deconvolve)
 #        elif method == 'cylindrical':
 #            return self._compute_cylindrical_spectrum(field, KX, KY, KZ, k_bins, normalize)
 #        elif method in ['1d_x', '1d_y', '1d_z']:
@@ -70,17 +107,32 @@ class MeasureVelocityField:
         else:
             raise ValueError("Invalid method")
     
-    def _compute_radial_spectrum(self, field, KX, KY, KZ, dx, box_size, k_bins, normalize):
+    def _compute_radial_spectrum(self, field, KX, KY, KZ, dx, box_size, k_bins, normalize, deconvolve=None):
         """Compute spherically averaged power spectrum."""
         # Transform to Fourier space
         field_k = fftn(field)
+        
+        if deconvolve is not None:
+            # Window function
+            W = self.assignment_window(KX, KY, KZ, dx, method="NGP")
+
+            # Deconvolve (avoid dividing by zero at k=0)
+            W[W == 0] = 1.0
+            field_k /= W
+        
         power_3d = np.abs(field_k)**2
         
         # Normalize by volume if requested
         if normalize:
             Ntotal = field.size
-            power_3d *= (dx * dx * dx)**2 / (box_size * box_size * box_size)
+            print(Ntotal)
+            power_3d *= (box_size**3)/Ntotal**2
         
+        var_real = np.mean(field**2)
+        var_fourier = np.sum(power_3d) / box_size**3
+        
+        print(var_real, var_fourier)  # should match
+
         # Calculate radial wavenumber
         K = np.sqrt(KX**2 + KY**2 + KZ**2)
         

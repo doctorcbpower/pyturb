@@ -35,10 +35,11 @@ class CreateTurbulentVelocityField:
         self.temperature = temperature
         self.v_turb=v_turb
         
+        self.seed=seed
+        
         if seed is not None:
-            np.random.seed(seed)
-            random.seed(seed)
-            
+            np.random.seed(self.seed)
+                                
         # Create coordinate grids
         self.x = np.linspace(0, box_size, grid_size, endpoint=False)
         self.y = np.linspace(0, box_size, grid_size, endpoint=False)
@@ -57,14 +58,37 @@ class CreateTurbulentVelocityField:
         
 #        # Precompute k-grid for rFFTs
         k = np.fft.fftfreq(self.grid_size, d=self.dx) * 2*np.pi
-        kx = k
-        ky = k
-        kz = k #np.fft.rfftfreq(self.grid_size, d=self.dx) * 2*np.pi
-        self.kx, self.ky, self.kz = np.meshgrid(kx, ky, kz, indexing='ij')
+        self.kx, self.ky, self.kz = np.meshgrid(k, k, k, indexing='ij')
         self.K2 = self.kx**2 + self.ky**2 + self.kz**2
         self.K2[0,0,0] = 1.0  # avoid divide by zero
         
         self.velocity_field=None
+        
+
+    def phase_for_mode(self, seed, comp, i, j, k):
+        """
+        Deterministic pseudo-random phase in [0, 2π).
+        Works with scalars or numpy arrays of indices.
+        """
+        # Ensure uint64 arithmetic (safe wraparound instead of overflow)
+        i = np.asarray(i, dtype=np.uint64)
+        j = np.asarray(j, dtype=np.uint64)
+        k = np.asarray(k, dtype=np.uint64)
+        comp = np.uint64(comp)
+        seed = np.uint64(seed)
+
+        # Combine inputs with XOR + large primes
+        h = seed ^ (i * np.uint64(73856093)) ^ (j * np.uint64(19349663)) ^ (k * np.uint64(83492791)) ^ (comp * np.uint64(2654435761))
+
+        # Apply a 64-bit mix (like SplitMix64 finaliser)
+        h ^= (h >> 30)
+        h *= np.uint64(0xbf58476d1ce4e5b9)
+        h ^= (h >> 27)
+        h *= np.uint64(0x94d049bb133111eb)
+        h ^= (h >> 31)
+
+        # Map to [0, 2π)
+        return 2*np.pi * (h.astype(np.float64) / np.float64(0xFFFFFFFFFFFFFFFF))
 
     def power_spectrum_index(self,alpha=5./3.):
         """ 
@@ -78,80 +102,107 @@ class CreateTurbulentVelocityField:
             Power spectrum index
         """
         return alpha+2.
-        
 
-    def generate_kolmogorov_field(self, energy_spectrum_index=5./3., power_spectrum_index=None, energy_scale=1.0):
+    def generate_kolmogorov_field(self, grid_size=None, box_size=None, energy_spectrum_index=5./3.,
+                                  power_spectrum_index=None, energy_scale=None, seed=None):
         """
-        Generate a 3D turbulent velocity field with Kolmogorov spectrum.
+        Generate a 3D turbulent velocity field with Kolmogorov spectrum, consistent across resolutions.
         
-        Parameters:
-        -----------
-        alpha : float
-            Spectral index (5/3 for Kolmogorov turbulence)
-        energy_scale: float
-            Normalisation factor for energy of fluid
-        Returns:
-        --------
-        tuple of 3D arrays
-            (vx, vy, vz) velocity components
-        """
-        
-        # Create Kolmogorov power spectrum: P(k) ~ k^(-alpha)
-        # For velocity field, we want k^(-alpha/2) amplitude
-        if power_spectrum_index==None:
-            spectral_index=self.power_spectrum_index(energy_spectrum_index)
-        else:
-            spectral_index=power_spectrum_index
+        Parameters
+        ----------
+        grid_size : int
+            Number of grid points per dimension. Defaults to self.grid_size.
+        box_size : float
+            Physical size of the box. Defaults to self.box_size.
+        energy_spectrum_index : float
+            Spectral index (5/3 for Kolmogorov turbulence).
+        power_spectrum_index : float
+            Power spectrum index. If None, computed from energy_spectrum_index.
+        energy_scale : float
+            Desired mean kinetic energy per cell. Defaults to 1.
+        seed : int
+            Seed for deterministic phases. Defaults to self.seed.
             
-        K_mag=np.sqrt(self.K2)
-        amplitude=np.zeros_like(K_mag)
+        Returns
+        -------
+        velocity_field : ndarray
+            3D array of shape (grid_size, grid_size, grid_size, 3) with (vx, vy, vz)
+        """
         
-        mask=K_mag>0
-        amplitude[mask] = K_mag[mask]**(-spectral_index/2)
-        amplitude[0, 0, 0] = 0  # Set DC component to zero
+        # Use defaults if None
+        grid_size = grid_size or self.grid_size
+        box_size = box_size or self.box_size
+        seed = seed or self.seed
         
-        # Generate three independent velocity components
+        # Grid spacing
+        dx = box_size / grid_size
+        
+        # Wavenumbers
+        k = np.fft.fftfreq(grid_size, d=dx) * 2*np.pi
+        self.kx, self.ky, self.kz = np.meshgrid(k, k, k, indexing='ij')
+        self.K2 = self.kx**2 + self.ky**2 + self.kz**2
+        self.K2[0,0,0] = 1.0  # avoid division by zero
+        
+        # Power spectrum index
+        if power_spectrum_index is None:
+            spectral_index = self.power_spectrum_index(energy_spectrum_index)
+        else:
+            spectral_index = power_spectrum_index
+        
+        # Kolmogorov amplitude in Fourier space
+        K_mag = np.sqrt(self.K2)
+        amplitude = K_mag**(-spectral_index/2)
+        amplitude[K_mag == 0] = 0.0  # zero mean mode
+        
+        # Generate phases based on **physical location**, scaled to integer for hashing
+        scale = 1e6
+        i_phys, j_phys, k_phys = np.indices(self.kx.shape) / grid_size
+        i_scaled = np.uint64(i_phys * scale)
+        j_scaled = np.uint64(j_phys * scale)
+        k_scaled = np.uint64(k_phys * scale)
+        
         velocity_components = []
-        
-        for _ in range(3):
-            # Generate random phases
-            phases = np.random.uniform(0, 2*np.pi, self.kx.shape)
-            field_k = amplitude * (np.cos(phases) + 1j*np.sin(phases))
-            # Transform to real space using irfftn (Hermitian symmetry automatically enforced)
-#            velocity_field = np.real(irfftn(field_k, s=(self.grid_size,self.grid_size,self.grid_size)))
+
+        for comp in range(3):
+            # Use integer indices that represent the same physical modes
+            # across different resolutions
+            i_indices, j_indices, k_indices = np.indices((grid_size, grid_size, grid_size))
+            
+            # Convert to signed indices (accounting for negative frequencies)
+            i_indices = np.where(i_indices <= grid_size//2, i_indices, i_indices - grid_size)
+            j_indices = np.where(j_indices <= grid_size//2, j_indices, j_indices - grid_size)
+            k_indices = np.where(k_indices <= grid_size//2, k_indices, k_indices - grid_size)
+            
+            phi = self.phase_for_mode(seed, comp, i_indices, j_indices, k_indices)
+            field_k = amplitude * np.exp(1j * phi)
             velocity_field = np.real(ifftn(field_k))
             velocity_components.append(velocity_field)
-            
-#        velocity_components*/= self.grid_size**3  # ensures Parseval's theorem works
 
-        # Make velocity field divergence-free (solenoidal)
+        # Make solenoidal
         self.vx_turb, self.vy_turb, self.vz_turb = self._make_solenoidal(velocity_components)
-        
-        # Initially, total velocity is just turbulent component
         self.vx, self.vy, self.vz = self.vx_turb.copy(), self.vy_turb.copy(), self.vz_turb.copy()
-
-       # Scale to desired energy level
-        total_energy = np.mean(self.vx**2 + self.vy**2 + self.vz**2)
-        scale_factor = np.sqrt(energy_scale / total_energy)
+        
+        # Scale to desired energy
+        if energy_scale is not None:
+            total_energy = np.mean(self.vx**2 + self.vy**2 + self.vz**2)
+            scale_factor = np.sqrt(energy_scale / total_energy)
+        else:
+            scale_factor = 1.0
         
         self.vx *= scale_factor
         self.vy *= scale_factor
         self.vz *= scale_factor
-
+        
+        # Stack components for convenience
         self.velocity_field = np.stack([self.vx, self.vy, self.vz], axis=-1)
-
+        
         return self.velocity_field
-
-#        return self.vx,self.vy,self.vz
-                
+        
     def _make_solenoidal(self, velocity_components):
         """
         Project velocity field to make it divergence-free (solenoidal).
         """
         # Transform velocity components to Fourier space
-#        vx_k = rfftn(velocity_components[0])
-#        vy_k = rfftn(velocity_components[1])
-#        vz_k = rfftn(velocity_components[2])
         vx_k = fftn(velocity_components[0])
         vy_k = fftn(velocity_components[1])
         vz_k = fftn(velocity_components[2])
@@ -173,9 +224,6 @@ class CreateTurbulentVelocityField:
         vz_k_sol[0, 0, 0] = 0
         
         # Transform back to real space
-#        vx_sol = np.real(irfftn(vx_k_sol,s=(self.grid_size,)*3))
-#        vy_sol = np.real(irfftn(vy_k_sol,s=(self.grid_size,)*3))
-#        vz_sol = np.real(irfftn(vz_k_sol,s=(self.grid_size,)*3))
         vx_sol = np.real(ifftn(vx_k_sol))
         vy_sol = np.real(ifftn(vy_k_sol))
         vz_sol = np.real(ifftn(vz_k_sol))

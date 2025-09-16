@@ -8,6 +8,7 @@ __pycache__/
 
 # Notebooks
 #*.ipynb
+comparison.py
 
 # Outputs
 *.hdf5

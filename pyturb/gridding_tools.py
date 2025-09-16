@@ -177,6 +177,9 @@ class GriddingTools:
                       field_mode="magnitude", component=0,
                       units="km/s", coord_units="kpc",
                       title="3D Grid Slice", cmap='plasma', figsize=(12, 4)):
+        """
+        
+        """
         scalar_grid = self.prepare_scalar_field(grid_3d, mode=field_mode, component=component)
         nx, ny, nz = scalar_grid.shape
         coord_labels = self.axis_labels_from_limits(grid_limits, coord_units)
@@ -237,6 +240,9 @@ class GriddingTools:
                             units="km/s", coord_units="kpc",
                             cmap='viridis', figsize=(12, 4), title=None,
                             slice_index=None, slice_width=None, slice_average=True):
+        """
+    
+        """
         fig, axes = plt.subplots(1, 3, figsize=figsize)
 
         for ax, axis, lbl in zip(axes, ['z', 'y', 'x'], ['XY', 'XZ', 'YZ']):
