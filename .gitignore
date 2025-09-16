@@ -7,7 +7,7 @@ __pycache__/
 .ipynb_checkpoints
 
 # Notebooks
-#*.ipynb
+*.ipynb
 comparison.py
 
 # Outputs
