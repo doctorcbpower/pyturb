@@ -9,7 +9,7 @@ __pycache__/
 # Notebooks
 # *.ipynb
 comparison.py
-measure_kinematics.py
+#measure_kinematics.py
 
 
 # Outputs
