@@ -1,6 +1,6 @@
 ## PyTurb: routines to generate and quantify turbulent velocity field
 
-Developer: Chris Power [UWA](https://research-repository.uwa.edu.au/en/persons/chris-power), [ICRAR](https://www.icrar.org/people/cpower/).
+Developers: Chris Power ([UWA](https://research-repository.uwa.edu.au/en/persons/chris-power), [ICRAR](https://www.icrar.org/people/cpower/)), Balu Sreedhar ([Seville](https://s-balu.github.io), Andrew Sullivan ([ICRAR](https://www.icrar.org/people/asullivan/))..
 
 More details on the theory and background are in the [wiki](https://github.com/doctorcbpower/pyturb/wiki).
 
