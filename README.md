@@ -21,7 +21,7 @@ and generate a turbulent velocity field and write it to file by doing the follow
 
 ```
 turb=pyturb.CreateTurbulentVelocityField(grid_size=128,v_turb=20.,temperature=1.e4,box_size=10)
-turb.generate_kolmogorov_field(alpha=5/3)
+turb.generate_kolmogorov_field(energy_spectrum_index=5/3, energy_scale=10.)
 (vx,vy,vz)=(turb.vx.ravel(),turb.vy.ravel(),turb.vz.ravel())
 vel=np.array([vx,vy,vz]).T
 (x,y,z)=(turb.X.ravel(),turb.Y.ravel(),turb.Z.ravel())
