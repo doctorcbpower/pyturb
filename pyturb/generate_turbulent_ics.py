@@ -11,7 +11,7 @@ class CreateTurbulentVelocityField:
     turbulent velocity fields in molecular clouds with Kolmogorov spectrum.
     """
     
-    def __init__(self, grid_size=32, rho0=1.0, box_size=1.0, v_turb=1.0, temperature=1.e4, alpha=-5./3., seed=None, DoublePrecision=True):
+    def __init__(self, grid_size=32, rho0=1.0, box_size=1.0, v_turb=1.0, temperature=1.e4, alpha=-5./3., seed=None, DoublePrecision=True, LongIDs=False):
         """
         Initialize the turbulent velocity field generator.
         
@@ -37,6 +37,7 @@ class CreateTurbulentVelocityField:
         
         self.seed=seed
         self.double = DoublePrecision
+        self.longids = LongIDs
         
         if seed is not None:
             np.random.seed(self.seed)
@@ -449,12 +450,16 @@ class CreateTurbulentVelocityField:
 
             if self.double:
                 dtype = 'float64'
-                id_dtype = 'int64'
                 header.attrs['Flag_DoublePrecision'] = 1
             else:
                 dtype = 'float32'
-                id_dtype = 'int32'
                 header.attrs['Flag_DoublePrecision'] = 0
+
+            if self.longids:
+                id_dtype = 'int64'
+            else:
+                id_dtype = 'int32'
+
 
             header.attrs['MassTable'] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
