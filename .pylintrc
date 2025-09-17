@@ -1,0 +1,34 @@
+[MASTER]
+# Don’t try to lint compiled extensions
+extension-pkg-whitelist=numpy,scipy
+
+[MESSAGES CONTROL]
+# Disable some of the noisier checks
+disable=
+    C0103,  # variable name doesn't conform to snake_case
+    C0114,  # missing module docstring
+    C0115,  # missing class docstring
+    C0116,  # missing function docstring
+    R0903,  # too few public methods (useful for data containers)
+    R0913,  # too many arguments
+    R0914,  # too many local variables
+    R0915,  # too many statements
+    W0511,  # TODO comments
+
+[FORMAT]
+# Allow long lines (scientific code often has long expressions)
+max-line-length=120
+
+[DESIGN]
+# Allow larger functions/classes
+max-args=10
+max-locals=25
+max-returns=10
+max-branches=15
+max-statements=80
+
+[REPORTS]
+# No fancy reports, just messages
+reports=no
+score=yes
+

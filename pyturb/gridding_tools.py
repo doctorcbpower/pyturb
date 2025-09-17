@@ -1,13 +1,82 @@
 from scipy.ndimage import gaussian_filter
+from scipy.spatial import Voronoi, cKDTree
+
 import matplotlib.pyplot as plt
 import numpy as np
 from numba import njit
 
+def assign_voronoi(grid,positions, values, grid_size, grid_limits, k_neighbours=8):
+    """
+    Fast KDTree-based Voronoi binning with automatic resolution-adaptive smoothing.
+    Here for completion - oversmoothes results - better to use CIC.
+    
+    Parameters
+    ----------
+    grid (ndarray): 
+        Grid to assign values into.
+    positions : ndarray
+        Particle positions, shape (N,3)
+    values : ndarray
+        Particle values, shape (N,) or (N,D)
+    grid_size : tuple
+        Grid dimensions (Nx,Ny,Nz)
+    grid_limits : list
+        Physical limits [xmin,xmax, ymin,ymax, zmin,zmax]
+    k_neighbours : int
+        Number of nearest particles per voxel to consider
+    """
 
-from numba import njit
-import numpy as np
+    if isinstance(grid_size, int):
+        Nx = Ny = Nz = grid_size
+    else:
+        Nx, Ny, Nz = grid_size
 
-@njit
+    D = 1 if values.ndim == 1 else values.shape[1]
+
+    # Compute voxel centers
+    dx = (grid_limits[1]-grid_limits[0])/Nx
+    dy = (grid_limits[3]-grid_limits[2])/Ny
+    dz = (grid_limits[5]-grid_limits[4])/Nz
+    x_centers = np.linspace(grid_limits[0]+0.5*dx, grid_limits[1]-0.5*dx, Nx)
+    y_centers = np.linspace(grid_limits[2]+0.5*dy, grid_limits[3]-0.5*dy, Ny)
+    z_centers = np.linspace(grid_limits[4]+0.5*dz, grid_limits[5]-0.5*dz, Nz)
+
+    X, Y, Z = np.meshgrid(x_centers, y_centers, z_centers, indexing='ij')
+    voxel_positions = np.stack([X.ravel(), Y.ravel(), Z.ravel()], axis=-1)
+
+    # Build KDTree for fast nearest-neighbour search
+    tree = cKDTree(positions)
+    dists, idxs = tree.query(voxel_positions, k=k_neighbours)
+
+    # Ensure 2D arrays
+    if k_neighbours == 1:
+        dists = dists[:, np.newaxis]
+        idxs = idxs[:, np.newaxis]
+
+    sigma2 = 0.25*(dx+dy+dz)**2  # CIC-like weighting ~ half voxel
+
+    if D == 1:
+        grid_flat = np.zeros(voxel_positions.shape[0])
+        for n in range(k_neighbours):
+            w = np.exp(-dists[:,n]**2 / sigma2)
+            grid_flat += w * values[idxs[:,n]]
+        # normalize by sum of weights
+        grid_flat /= np.sum(np.exp(-dists**2 / sigma2), axis=1)
+        grid = grid_flat.reshape(Nx,Ny,Nz)
+    else:
+        grid = np.zeros((Nx,Ny,Nz,D), dtype=values.dtype)
+        for d in range(D):
+            grid_flat = np.zeros(voxel_positions.shape[0])
+            for n in range(k_neighbours):
+                w = np.exp(-dists[:,n]**2 / sigma2)
+                grid_flat += w * values[idxs[:,n],d]
+            grid_flat /= np.sum(np.exp(-dists**2 / sigma2), axis=1)
+            grid[...,d] = grid_flat.reshape(Nx,Ny,Nz)
+
+    return grid
+
+
+@njit(parallel=False)
 def ngp_assign(grid, coords, values, grid_size):
     """
     Nearest-Grid-Point (NGP) assignment. Assigns both scalars and vectors.
@@ -35,9 +104,8 @@ def ngp_assign(grid, coords, values, grid_size):
         else:
             for c in range(ncomp):
                 grid[i % Nx, j % Ny, k % Nz, c] += values[p, c]
-
-
-@njit
+                
+@njit(parallel=False)
 def cic_assign(grid, coords, values, grid_size):
     """
     Cloud-In-Cell (CIC) assignment. Assigns both scalars and vectors.
@@ -92,8 +160,7 @@ def cic_assign(grid, coords, values, grid_size):
             else:
                 for c in range(ncomp):
                     grid[ii, jj, kk, c] += values[p, c] * w[n]
-
-
+                    
 class GriddingTools:
     def __init__(self):
         pass
@@ -127,6 +194,8 @@ class GriddingTools:
             elif method.upper() == "GAUSSIAN":
                 cic_assign(grid, coords, vals, grid_size)
                 grid[:] = gaussian_filter(grid, sigma=sigma)
+            elif method.upper() == "VORONOI":
+                grid=assign_voronoi(grid, coords, vals, grid_size, grid_limits, k_neighbours=8)
             else:
                 raise ValueError(f"Unknown assignment method: {method}")
 

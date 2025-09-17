@@ -18,12 +18,12 @@ class MeasureVelocityField:
     
         # Fourier space total energy (Parseval's theorem)
         # Sum over all k modes in power spectrum
-#        dk = np.gradient(k)  # k-space spacing
-#        energy_fourier = np.sum(P_energy * k**2 * dk) * 4 * np.pi  # 4π for spherical integration
-#
+        dk = np.gradient(k)  # k-space spacing
+        energy_fourier = np.sum(P_energy * k**2 * dk) * 4 * np.pi  # 4π for spherical integration
+
         print(f"Real space energy: {energy_real:.6f}")
-#    print(f"Fourier space energy: {energy_fourier:.6f}")
-#    print(f"Ratio: {energy_fourier/energy_real:.3f} (should be ≈ 1)")
+        print(f"Fourier space energy: {energy_fourier:.6f}")
+        print(f"Ratio: {energy_fourier/energy_real:.3f} (should be 1)")
     
     def assignment_window(self, kx, ky, kz, dx, method="CIC"):
         """
