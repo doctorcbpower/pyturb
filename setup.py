@@ -15,6 +15,7 @@ setup(
 		      "scipy",
 		      "matplotlib",
 		      "plotly",
+		      "pykdtree"
                      ],  
 
 )

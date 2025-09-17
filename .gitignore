@@ -9,6 +9,8 @@ __pycache__/
 # Notebooks
 # *.ipynb
 comparison.py
+measure_kinematics.py
+
 
 # Outputs
 *.hdf5

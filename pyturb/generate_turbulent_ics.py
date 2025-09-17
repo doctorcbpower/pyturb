@@ -444,6 +444,7 @@ class CreateTurbulentVelocityField:
             header.attrs['Flag_Cooling'] = 0
             header.attrs['Flag_StellarAge'] = 0
             header.attrs['Flag_Metals'] = 0
+            header.attrs['Flag_Feedback'] = 0
             header.attrs['Flag_DoublePrecision'] = 0
             header.attrs['MassTable'] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             # Gas particles
