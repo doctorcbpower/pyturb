@@ -11,7 +11,7 @@ class CreateTurbulentVelocityField:
     turbulent velocity fields in molecular clouds with Kolmogorov spectrum.
     """
     
-    def __init__(self, grid_size=32, rho0=1.0, box_size=1.0, v_turb=1.0, temperature=1.e4, alpha=5./3., seed=None):
+    def __init__(self, grid_size=32, rho0=1.0, box_size=1.0, v_turb=1.0, temperature=1.e4, alpha=-5./3., seed=None, DoublePrecision=True, LongIDs=False):
         """
         Initialize the turbulent velocity field generator.
         
@@ -36,6 +36,8 @@ class CreateTurbulentVelocityField:
         self.v_turb=v_turb
         
         self.seed=seed
+        self.double = DoublePrecision
+        self.longids = LongIDs
         
         if seed is not None:
             np.random.seed(self.seed)
@@ -425,7 +427,7 @@ class CreateTurbulentVelocityField:
         print(f"Box size: {self.box_size} pc")
         print(f"Mean density: {self.rho0} H/cm^3")
         print(f"Initial temperature: {self.temperature} K")
-    
+
         # Write HDF5 file
         with h5py.File(filename, 'w') as f:
             # Header
@@ -445,15 +447,31 @@ class CreateTurbulentVelocityField:
             header.attrs['Flag_StellarAge'] = 0
             header.attrs['Flag_Metals'] = 0
             header.attrs['Flag_Feedback'] = 0
-            header.attrs['Flag_DoublePrecision'] = 0
+
+            if self.double:
+                dtype = 'float64'
+                header.attrs['Flag_DoublePrecision'] = 1
+            else:
+                dtype = 'float32'
+                header.attrs['Flag_DoublePrecision'] = 0
+
+            if self.longids:
+                id_dtype = 'int64'
+            else:
+                id_dtype = 'int32'
+
+
             header.attrs['MassTable'] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
             # Gas particles
             part0 = f.create_group('PartType0')
-            part0.create_dataset('Coordinates', data=pos)
-            part0.create_dataset('Velocities', data=vel)
-            part0.create_dataset('Masses', data=mass)
-            part0.create_dataset('InternalEnergy', data=u)
-            part0.create_dataset('ParticleIDs', data=ids)
+            part0.create_dataset('Coordinates', data=pos.astype(dtype))
+            part0.create_dataset('Velocities', data=vel.astype(dtype))
+            part0.create_dataset('Masses', data=mass.astype(dtype))
+            part0.create_dataset('InternalEnergy', data=u.astype(dtype))
+            part0.create_dataset('ParticleIDs', data=ids.astype(id_dtype))
+
+
         print(f"Initial conditions written to {filename}")
 
 if __name__ == "__main__":
