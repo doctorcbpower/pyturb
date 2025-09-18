@@ -2,7 +2,7 @@ import h5py
 import numpy as np
 from scipy.fft import fftn, fftfreq
 
-class MeasureVelocityField:
+class MeasureVelocityFieldFFT():
     """
     Tools to measure properties of a velocity field.
     Includes the power spectrum.

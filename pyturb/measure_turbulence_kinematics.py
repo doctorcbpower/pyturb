@@ -1,6 +1,7 @@
+import importlib.util
 import numpy as np
 from numba import njit, prange
-from numba_kdtree import KDTree
+from pykdtree.kdtree import KDTree
 from tqdm import tqdm
 
 @njit
