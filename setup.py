@@ -14,8 +14,8 @@ setup(
 		      "numba",
 		      "scipy",
 		      "matplotlib",
-		      "plotly",
-		      "pykdtree"
+		      "pykdtree",
+		      "tqdm",
                      ],  
 
 )
