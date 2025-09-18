@@ -9,13 +9,14 @@ setup(
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     author="Chris Power (chris.power@uwa.edu.au)",
-    install_requires=["h5py",
-                      "numpy",
-		      "numba",
-		      "scipy",
-		      "matplotlib",
-		      "pykdtree",
-		      "tqdm",
+    install_requires=["h5py",        # HDF5 support
+                      "numpy",       # numerical routines
+		      "numba",	     # accelerated numerical routines
+		      "scipy",	     # useful algorithms for e.g. FFTs
+		      "matplotlib",  # plotting 
+		      "pykdtree",    # fast KD tree construction
+		      "tqdm",	     # progress tracking
+		      "PyWavelets",  # wavelet transform support
                      ],  
 
 )
