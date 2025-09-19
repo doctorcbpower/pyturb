@@ -1,5 +1,5 @@
 from .measure_turbulence_fft import MeasureVelocityFieldFFT
-from .measure_turbulence_wavelets import *
+from .measure_turbulence_wavelets import MeasureVelocityFieldWavelets
 from .measure_turbulence_kinematics import MeasureVelocityFieldKinematics
 
 class MeasureVelocityField():
@@ -12,8 +12,7 @@ class MeasureVelocityField():
     def wavelets(self,verbose=False):
         if verbose==True:
             print("Using wavelet approach")
-        raise("Option not implemented")
-        return
+        return MeasureVelocityFieldWavelets()
     def kinematics(self,*args,verbose=False,**kwargs):
         if verbose==True:
             print("Using kinematics method")
