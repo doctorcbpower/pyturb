@@ -2,14 +2,17 @@ import numpy as np
 from scipy import ndimage
 from numba import njit, prange
 import matplotlib.pyplot as plt
-
-import pywt
-import pywt.data
+from scipy.fft import rfftn, irfftn, fftshift
 
 class MeasureVelocityFieldWavelets:
     """
     Tools to measure properties of a velocity field using wavelets.
     Includes the power spectrum.
+
+    Attributes
+    ----------
+    alpha_3d : float
+        Normalization constant for the 3D Mexican hat wavelet.
     """
     def __init__(self, scales=None, n_scales=10):
         """
@@ -28,6 +31,89 @@ class MeasureVelocityFieldWavelets:
         
         # Normalization constant for 3D Mexican hat
         self.alpha_3d = 2 * np.sqrt(5) / (np.pi**(3/4))
+
+    def get_wavelet_coefficients_fft(self, field, box_size):
+        # field: (Nx,Ny,Nz) or (Nx,Ny,Nz,3)
+        Nx, Ny, Nz = field.shape[:3]
+        dx = box_size / Nx
+
+        # pre-allocate coefficients (use float32 if ok)
+        dtype = np.float32 if field.dtype == np.float32 else np.float64
+        if field.ndim == 4:
+            coefficients = np.zeros((Nx, Ny, Nz, 3, len(self.scales)), dtype=dtype)
+        else:
+            coefficients = np.zeros((Nx, Ny, Nz, len(self.scales)), dtype=dtype)
+
+        # precompute FFTs of components if vector
+        if field.ndim == 4:
+            F_components = [rfftn(field[...,c]) for c in range(3)]
+        else:
+            F_field = rfftn(field)
+
+        kernel_F_cache = {} 
+
+        for i, scale in enumerate(self.scales):
+            scale_grid = scale / dx
+            
+            # Fix: Ensure kernel size is always reasonable
+            max_kernel_size = min(Nx, Ny, Nz) - 2  # Leave some margin
+            theoretical_size = int(6 * scale_grid)
+            kernel_size = min(theoretical_size, max_kernel_size)
+
+            if kernel_size < 3:
+                continue
+
+            # Make kernel size odd for symmetry
+            if kernel_size % 2 == 0:
+                kernel_size -= 1
+        
+            # Now build kernel - guaranteed to fit
+            half_size = kernel_size // 2
+
+            cache_key = (scale_grid, kernel_size, Nx, Ny, Nz)
+        
+            if cache_key in kernel_F_cache:
+                Fk = kernel_F_cache[cache_key]
+            else:
+                # build kernel (use r_sq with broadcasting instead of meshgrid)
+                xk = np.arange(-half_size, half_size + 1) * dx
+                yk = xk
+                zk = xk
+                r_sq = (xk[:,None,None]**2) + (yk[None,:,None]**2) + (zk[None,None,:]**2)
+                kernel = self.mexican_hat_3d_from_rsq(r_sq, scale_grid)
+
+                # check kernel fits
+                s0, s1, s2 = kernel.shape
+                if s0 > Nx or s1 > Ny or s2 > Nz:
+                    # truncate kernel to fit the box
+                    trim0 = (s0 - Nx) // 2
+                    trim1 = (s1 - Ny) // 2
+                    trim2 = (s2 - Nz) // 2
+                    kernel = kernel[trim0:s0-trim0, trim1:s1-trim1, trim2:s2-trim2]
+                    s0, s1, s2 = kernel.shape
+
+                # pad kernel into full box
+                pad_kernel = np.zeros((Nx,Ny,Nz), dtype=kernel.dtype)
+                start = [(Nx - s0)//2, (Ny - s1)//2, (Nz - s2)//2]
+                pad_kernel[start[0]:start[0]+s0,
+                            start[1]:start[1]+s1,
+                            start[2]:start[2]+s2] = kernel
+
+                # center at origin for FFT convolution
+                pad_kernel = fftshift(pad_kernel)
+
+                Fk = rfftn(pad_kernel)
+
+                kernel_F_cache[cache_key] = Fk
+                
+            # convolve in Fourier domain (re-use component FFTs)
+            if field.ndim == 4:
+                for c in range(3):
+                    coefficients[..., c, i] = irfftn(F_components[c] * Fk, s=(Nx,Ny,Nz))
+            else:
+                coefficients[..., i] = irfftn(F_field * Fk, s=(Nx,Ny,Nz))
+
+        return coefficients
         
     def get_wavelet_coefficients(self, field, box_size):
         """
@@ -43,18 +129,14 @@ class MeasureVelocityFieldWavelets:
         Returns
         -------
         coefficients : ndarray
-            Wavelet coefficients, shape (Nx, Ny, Nz, n_scales)
+            For scalar fields (ndim=3): shape (Nx, Ny, Nz, n_scales)
+            For vector fields (ndim=4): shape (Nx, Ny, Nz, 3, n_scales)
         """
-        
-        if field.ndim != 4 or field.shape[-1] != 3:
-            raise ValueError("field must have shape (Nx, Ny, Nz, 3)")
-#
-#        # Extract components
-#        vx = velocity_field[..., 0]
-#        vy = velocity_field[..., 1]
-#        vz = velocity_field[..., 2]
-        
-        Nx, Ny, Nz,_ = field.shape
+
+        if not ((field.ndim == 3) or (field.ndim == 4 and field.shape[-1] == 3)):
+            raise ValueError("field must have shape (Nx, Ny, Nz) or (Nx, Ny, Nz, 3)")
+
+        Nx, Ny, Nz = field.shape[:3]
         dx = box_size / Nx
         
         # Physical coordinates
@@ -62,12 +144,17 @@ class MeasureVelocityFieldWavelets:
         y = np.linspace(-box_size/2, box_size/2, Ny)
         z = np.linspace(-box_size/2, box_size/2, Nz)
         X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
-        
-        coefficients = np.zeros(field.shape + (len(self.scales),), dtype=field.dtype)
+
+        if field.ndim == 4:
+            coefficients = np.zeros((Nx, Ny, Nz, 3, len(self.scales)), dtype=field.dtype)
+        elif field.ndim == 3:
+            coefficients = np.zeros((Nx, Ny, Nz, len(self.scales)), dtype=field.dtype)
+        else:
+            raise ValueError(f"Unsupported field ndim={field.ndim}")
 
         for i, scale in enumerate(self.scales):
-            # Convert scale to grid units
-            scale_grid = scale * dx
+            # Convert scale from physical units to grid units
+            scale_grid = scale / dx
 
             # Kernel size
             kernel_size = min(int(6 * scale_grid), min(Nx, Ny, Nz) // 2)
@@ -83,19 +170,36 @@ class MeasureVelocityFieldWavelets:
             # Mexican hat kernel
             kernel = self.mexican_hat_3d(X_k, Y_k, Z_k, scale_grid)
 
-            # --- Apply convolution ---
-            if field.ndim == 3:  # scalar field
+            if field.ndim == 4:  # vector field (Nx, Ny, Nz, 3)
+                for comp in range(3):
+                    coefficients[..., comp, i] = ndimage.convolve(field[..., comp], kernel, mode="wrap")
+            elif field.ndim == 3:  # scalar field (Nx, Ny, Nz)
                 coefficients[..., i] = ndimage.convolve(field, kernel, mode="wrap")
-            elif field.ndim == 4:  # vector field (components, Nx, Ny, Nz)
-                for comp in range(field.shape[0]):
-                    coefficients[comp, ..., i] = ndimage.convolve(field[comp], kernel, mode="wrap")
             else:
                 raise ValueError(f"Unsupported field ndim={field.ndim}")
 
         return coefficients
 
         
-        
+    def mexican_hat_3d_from_rsq(self,rsq, sigma):
+        """
+        3D isotropic Mexican hat (Laplacian of Gaussian) wavelet.
+    
+        Parameters
+        ----------
+        rsq : ndarray
+            Squared radius (x^2 + y^2 + z^2).
+        sigma : float
+            Scale parameter.
+    
+        Returns
+        -------
+        psi : ndarray
+            Wavelet evaluated at rsq.
+        """
+        factor = (3.0 - rsq / sigma**2)
+        return factor * np.exp(-0.5 * rsq / sigma**2) 
+    
     def mexican_hat_3d(self, x, y, z, scale):
         """
         3D Mexican Hat (2nd derivative of Gaussian) wavelet.
@@ -115,113 +219,63 @@ class MeasureVelocityFieldWavelets:
         r_sq = (x**2 + y**2 + z**2) / scale**2
         
         # Mexican hat: (3 - r²) * exp(-r²/2)
-        psi = self.alpha_3d * (3 - r_sq) * np.exp(-r_sq / 2) / (scale**(3/2))
-        
+        # psi = self.alpha_3d * (3 - r_sq) * np.exp(-r_sq / 2) / (scale**(3/2))
+        psi = self.alpha_3d * (3 - r_sq/scale**2) * np.exp(-0.5 * r_sq/scale**2) / (scale**(3/2))
         return psi
     
-#    def wavelet_transform_local(self, field, box_size):
-#        """
-#        Compute local wavelet coefficients at each point.
-#        
-#        Parameters
-#        ----------
-#        field : ndarray
-#            3D velocity field component or magnitude
-#        box_size : float
-#            Physical size of simulation box
-#            
-#        Returns
-#        -------
-#        coefficients : ndarray
-#            Wavelet coefficients, shape (Nx, Ny, Nz, n_scales)
-#        """
-#        Nx, Ny, Nz,_ = field.shape
-#        dx = box_size / Nx
-#        
-#        # Physical coordinates
-#        x = np.linspace(-box_size/2, box_size/2, Nx)
-#        y = np.linspace(-box_size/2, box_size/2, Ny)
-#        z = np.linspace(-box_size/2, box_size/2, Nz)
-#        X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
-#        
-#        coefficients = np.zeros((Nx, Ny, Nz, len(self.scales)))
-#        
-#        for i, scale in enumerate(self.scales):
-#            # Convert scale to grid units
-#            scale_grid = scale * dx
-#            
-#            # Create wavelet kernel
-#            kernel_size = min(int(6 * scale_grid), min(Nx, Ny, Nz) // 2)
-#            if kernel_size < 3:
-#                continue
-#                
-#            # Local coordinates for kernel
-#            x_k = np.arange(-kernel_size, kernel_size + 1) * dx
-#            y_k = np.arange(-kernel_size, kernel_size + 1) * dx  
-#            z_k = np.arange(-kernel_size, kernel_size + 1) * dx
-#            X_k, Y_k, Z_k = np.meshgrid(x_k, y_k, z_k, indexing='ij')
-#            
-#            # Wavelet kernel
-#            kernel = self.mexican_hat_3d(X_k, Y_k, Z_k, scale_grid)
-#            
-#            # Convolve with field (this gives wavelet coefficients)
-#            coefficients[:, :, :, i] = ndimage.convolve(field, kernel, mode='wrap')
-#            
-#        return coefficients
-#    
-#    def local_power_spectrum(self, field, box_size, radial_bins=None):
-#        """
-#        Compute local wavelet power spectra.
-#        
-#        Parameters
-#        ----------
-#        field : ndarray
-#            3D field to analyze
-#        box_size : float
-#            Physical box size
-#        radial_bins : array_like, optional
-#            Radial bins for averaging. If None, uses whole box.
-#            
-#        Returns
-#        -------
-#        k_equiv : ndarray
-#            Equivalent wavenumbers
-#        power_local : ndarray
-#            Local power spectra, shape (n_radial_bins, n_scales) or (n_scales,)
-#        """
-#        coefficients = self.wavelet_transform_local(field, box_size)
-#        
-#        # Equivalent wavenumbers (following Shi et al.)
-#        k_equiv = np.sqrt(2 + 3/2) / (self.scales * box_size / field.shape[0])
-#        
-#        # Local power: |coefficients|²
-#        power_local = coefficients**2
-#        
-#        if radial_bins is not None:
-#            # Compute power in radial bins
-#            center = np.array(field.shape) // 2
-#            Nx, Ny, Nz = field.shape
-#            
-#            # Create radial coordinate array
-#            i_coords, j_coords, k_coords = np.ogrid[:Nx, :Ny, :Nz]
-#            r_coords = np.sqrt((i_coords - center[0])**2 + 
-#                             (j_coords - center[1])**2 + 
-#                             (k_coords - center[2])**2)
-#            
-#            power_radial = []
-#            for i in range(len(radial_bins) - 1):
-#                mask = (r_coords >= radial_bins[i]) & (r_coords < radial_bins[i+1])
-#                if np.any(mask):
-#                    power_bin = np.median(power_local[mask], axis=0)
-#                else:
-#                    power_bin = np.zeros(len(self.scales))
-#                power_radial.append(power_bin)
-#            
-#            return k_equiv, np.array(power_radial)
-#        else:
-#            # Global average
-#            power_avg = np.mean(power_local, axis=(0, 1, 2))
-#            return k_equiv, power_avg
+    def local_power_spectrum(self, field, box_size, radial_bins=None):
+        """
+        Compute local wavelet power spectra.
+
+        Parameters
+        ----------
+        field : ndarray
+            3D field to analyze
+        box_size : float
+            Physical box size
+        radial_bins : array_like, optional
+            Radial bins for averaging. If None, uses whole box.
+
+        Returns
+        -------
+        k_equiv : ndarray
+            Equivalent wavenumbers
+        power_local : ndarray
+            Local power spectra, shape (n_radial_bins, n_scales) or (n_scales,)
+        """
+        coefficients = self.get_wavelet_coefficients_fft(field, box_size)
+
+        # Equivalent wavenumbers (following Shi et al.)
+        k_equiv = np.sqrt(2 + 3/2) / (self.scales * box_size / field.shape[0])
+
+        # Local power: |coefficients|²
+        power_local = coefficients**2
+
+        if radial_bins is not None:
+            # Compute power in radial bins
+            center = np.array(field.shape) // 2
+            Nx, Ny, Nz = field.shape
+
+            # Create radial coordinate array
+            i_coords, j_coords, k_coords = np.ogrid[:Nx, :Ny, :Nz]
+            r_coords = np.sqrt((i_coords - center[0])**2 + 
+                            (j_coords - center[1])**2 + 
+                            (k_coords - center[2])**2)
+
+            power_radial = []
+            for i in range(len(radial_bins) - 1):
+                mask = (r_coords >= radial_bins[i]) & (r_coords < radial_bins[i+1])
+                if np.any(mask):
+                    power_bin = np.median(power_local[mask], axis=0)
+                else:
+                    power_bin = np.zeros(len(self.scales))
+                power_radial.append(power_bin)
+            
+            return k_equiv, np.array(power_radial)
+        else:
+            # Global average
+            power_avg = np.mean(power_local, axis=(0, 1, 2))
+            return k_equiv, power_avg
 #
 #def compare_interpolation_methods_wavelet(original_field, interpolated_fields, 
 #                                        method_names, box_size):

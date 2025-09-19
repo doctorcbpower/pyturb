@@ -16,7 +16,6 @@ setup(
 		      "matplotlib",  # plotting 
 		      "pykdtree",    # fast KD tree construction
 		      "tqdm",	     # progress tracking
-		      "PyWavelets",  # wavelet transform support
                      ],  
 
 )
