@@ -15,6 +15,7 @@ You should be able to load this as a python package using
 
 ```
 import pyturb
+import numpy as np
 ```
 
 and generate a turbulent velocity field and write it to file by doing the following,
@@ -23,9 +24,9 @@ and generate a turbulent velocity field and write it to file by doing the follow
 pturb = pyturb.CreateTurbulentVelocityField(grid_size=128,box_size=10,seed=18732)    
 vel_field = pturb.generate_kolmogorov_field(energy_spectrum_index=5./3., energy_scale=1.0)
 
-(vx,vy,vz)=(turb.vx.ravel(),turb.vy.ravel(),turb.vz.ravel())
+(vx,vy,vz)=(pturb.vx.ravel(),pturb.vy.ravel(),pturb.vz.ravel())
 vel=np.array([vx,vy,vz]).T
-(x,y,z)=(turb.X.ravel(),turb.Y.ravel(),turb.Z.ravel())
+(x,y,z)=(pturb.X.ravel(),pturb.Y.ravel(),pturb.Z.ravel())
 pos=np.array([x,y,z]).T
 pturb.write_to_file("./turbulent_ics.hdf5")
 ```
